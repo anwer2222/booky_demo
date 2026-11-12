@@ -1,0 +1,150 @@
+:root {
+  --cream: #fbf5e9;
+  --ink: #3b2a1e;
+  --gold: #c9962c;
+  --teal: #1f6f76;
+  --wood: #8a5a32;
+  --bg: #d9c6a5;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: var(--bg); color: var(--ink); overflow: hidden; }
+body { -webkit-tap-highlight-color: transparent; }
+
+.stage { position: fixed; inset: 0; }
+.canvas-wrap { position: absolute; inset: 0; touch-action: none; }
+.loading { position: fixed; inset: 0; display: grid; place-items: center; font-size: 20px; }
+
+.overlay { position: absolute; inset: 0; pointer-events: none; }
+.overlay > * { pointer-events: auto; }
+
+.topbar {
+  position: absolute; top: 0; inset-inline: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: max(12px, env(safe-area-inset-top)) 16px 8px;
+  pointer-events: none;
+}
+.topbar > * { pointer-events: auto; }
+.brand {
+  font-size: 22px; font-weight: 800; color: var(--cream);
+  background: var(--teal); padding: 4px 16px 6px; border-radius: 999px;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, .15);
+}
+
+.btn {
+  font: inherit; font-weight: 700; font-size: 16px; color: var(--ink);
+  background: var(--cream); border: 2px solid var(--gold); border-radius: 999px;
+  min-height: 44px; padding: 6px 16px; cursor: pointer; text-decoration: none;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, .12);
+}
+.btn:disabled { opacity: .4; cursor: default; }
+.btn.primary { background: var(--teal); color: var(--cream); border-color: var(--teal); }
+.btn.round { width: 56px; height: 56px; padding: 0; font-size: 26px; }
+.btn:focus-visible, .icon-btn:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
+.icon-btn {
+  width: 44px; height: 44px; border-radius: 50%; border: 2px solid var(--gold);
+  background: var(--cream); font-size: 20px; cursor: pointer;
+}
+
+.hint {
+  position: absolute; bottom: max(20px, env(safe-area-inset-bottom)); inset-inline: 16px;
+  text-align: center; font-size: 17px; font-weight: 700; color: var(--ink);
+  background: rgba(251, 245, 233, .88); border-radius: 16px; padding: 10px 14px;
+  pointer-events: none;
+}
+.shelf-bar {
+  position: absolute; bottom: max(16px, env(safe-area-inset-bottom)); inset-inline: 16px;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  background: rgba(251, 245, 233, .9); border-radius: 18px; padding: 10px 14px;
+}
+.hint-text { text-align: center; font-size: 16px; font-weight: 700; }
+@media (min-width: 700px) {
+  /* on wide screens the bar is a small pill, so the table stays in view */
+  .shelf-bar { inset-inline: auto; left: 50%; transform: translateX(-50%); flex-direction: row; gap: 14px; padding: 6px 6px 6px 18px; border-radius: 999px; }
+}
+.hint.small { bottom: calc(max(20px, env(safe-area-inset-bottom)) + 76px); font-size: 14px; padding: 6px 12px; inset-inline: auto; left: 50%; transform: translateX(-50%); white-space: nowrap; }
+
+.top-actions {
+  position: absolute; top: calc(max(12px, env(safe-area-inset-top)) + 54px); inset-inline: 16px;
+  display: flex; flex-wrap: wrap; gap: 8px;
+}
+
+.pager {
+  position: absolute; bottom: max(16px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 12px;
+  background: rgba(251, 245, 233, .9); border-radius: 999px; padding: 6px;
+}
+.where { min-width: 150px; text-align: center; font-weight: 700; font-size: 15px; }
+
+.toast {
+  position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
+  background: var(--teal); color: var(--cream); font-size: 20px; font-weight: 800;
+  padding: 12px 22px; border-radius: 16px; box-shadow: 0 6px 20px rgba(0, 0, 0, .25);
+  pointer-events: none;
+}
+
+/* drei <Html> anchors with an absolutely positioned box; in an RTL page its static position
+   is the right edge, which pushes labels left. Keep the anchor box LTR. */
+.html-anchor { direction: ltr; pointer-events: none; }
+.shelf-label {
+  width: max-content; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  white-space: nowrap; pointer-events: none; user-select: none;
+}
+.shelf-title { font-size: 13px; font-weight: 800; color: var(--ink); background: rgba(251, 245, 233, .9); padding: 1px 8px; border-radius: 8px; }
+.shelf-tag { font-size: 11px; font-weight: 800; color: var(--cream); background: var(--teal); padding: 0 8px; border-radius: 999px; }
+.shelf-label.locked .shelf-tag { background: var(--gold); color: var(--ink); }
+
+.top-tools { display: flex; align-items: center; gap: 8px; }
+.btn.small { min-height: 36px; font-size: 14px; padding: 4px 14px; }
+
+/* "My books" mock-up */
+.lib-backdrop { position: absolute; inset: 0; background: rgba(59, 42, 30, .35); display: grid; place-items: center; padding: 16px; z-index: 20; }
+.lib {
+  width: min(920px, 100%); max-height: min(720px, 100%); display: flex; flex-direction: column;
+  background: var(--cream); border-radius: 22px; box-shadow: 0 18px 50px rgba(0, 0, 0, .3); outline: none; overflow: hidden;
+}
+.lib-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 4px; }
+.lib-head h2 { font-size: 24px; }
+.lib-tabs { display: flex; gap: 6px; padding: 8px 18px; border-bottom: 2px solid #ecdcbc; flex-wrap: wrap; }
+.lib-tabs button {
+  font: inherit; font-weight: 700; font-size: 15px; border: 0; background: transparent; color: var(--ink);
+  padding: 8px 14px; border-radius: 999px; cursor: pointer;
+}
+.lib-tabs button.on { background: var(--teal); color: var(--cream); }
+.lib-body { overflow: auto; padding: 16px 18px 20px; }
+.lib-grid { list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; }
+.card { background: #fff; border-radius: 16px; padding: 10px; box-shadow: 0 2px 0 rgba(0, 0, 0, .06), 0 4px 14px rgba(0, 0, 0, .06); display: flex; flex-direction: column; gap: 8px; }
+.card-cover { position: relative; border: 0; padding: 0; background: none; cursor: pointer; border-radius: 10px; overflow: hidden; aspect-ratio: 4 / 3; }
+.card-cover img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .2s; }
+.card-cover:hover img { transform: scale(1.04); }
+.ribbon { position: absolute; bottom: 8px; inset-inline-start: 8px; background: var(--gold); color: var(--ink); font-size: 12px; font-weight: 800; padding: 1px 10px; border-radius: 999px; }
+.card-text h3 { font-size: 16px; }
+.muted { font-size: 13px; color: #7a6450; }
+.card-actions { display: flex; gap: 6px; }
+.lib-list { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+.card.row { flex-direction: row; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 14px 16px; }
+.steps { list-style: none; display: flex; gap: 4px; }
+.steps li { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 78px; font-size: 12px; color: #9a8670; text-align: center; }
+.steps .dot { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: #efe3cb; font-weight: 800; }
+.steps li.done { color: var(--teal); }
+.steps li.done .dot { background: var(--teal); color: var(--cream); }
+.steps li.now { color: var(--ink); font-weight: 800; }
+.steps li.now .dot { background: var(--gold); color: var(--ink); box-shadow: 0 0 0 4px rgba(201, 150, 44, .25); }
+.lib-form { display: flex; flex-direction: column; gap: 12px; max-width: 560px; margin-inline: auto; }
+.lib-form label { display: flex; flex-direction: column; gap: 4px; font-weight: 700; font-size: 15px; }
+.lib-form input[type="text"] { font: inherit; font-size: 15px; padding: 10px 12px; border: 2px solid #e6d5b5; border-radius: 12px; background: #fff; }
+.lib-form fieldset { border: 0; display: flex; flex-direction: column; gap: 6px; }
+.lib-form legend { font-weight: 700; margin-bottom: 4px; }
+.lib-form .radio { flex-direction: row; align-items: center; gap: 8px; font-weight: 500; }
+.drop { align-items: center; text-align: center; border: 2px dashed var(--gold); border-radius: 16px; padding: 18px; background: #fffaf0; cursor: pointer; font-weight: 500 !important; }
+.drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.drop-icon { font-size: 30px; }
+.note { background: #fdf0d2; border-radius: 12px; padding: 8px 12px; font-size: 14px; font-weight: 700; }
+
+.fallback { min-height: 100%; overflow: auto; display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 32px 16px; text-align: center; }
+.fallback img { width: min(100%, 520px); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, .2); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}

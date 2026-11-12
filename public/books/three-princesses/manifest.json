@@ -1,0 +1,163 @@
+{
+  "id": "three-princesses",
+  "title_ar": "الأميرات الثلاث",
+  "title_en": "The Three Princesses",
+  "direction": "rtl",
+  "page_size_in": [
+    10,
+    7.5
+  ],
+  "pdf": "The_Three_Princesses.pdf",
+  "pages": [
+    {
+      "index": 1,
+      "kind": "cover",
+      "src": "pages/p01.webp"
+    },
+    {
+      "index": 2,
+      "kind": "endpaper",
+      "src": "pages/p02.webp"
+    },
+    {
+      "index": 3,
+      "kind": "title",
+      "src": "pages/p03.webp"
+    },
+    {
+      "index": 4,
+      "kind": "text",
+      "src": "pages/p04.webp"
+    },
+    {
+      "index": 5,
+      "kind": "illustration",
+      "src": "pages/p05.webp"
+    },
+    {
+      "index": 6,
+      "kind": "text",
+      "src": "pages/p06.webp"
+    },
+    {
+      "index": 7,
+      "kind": "illustration",
+      "src": "pages/p07.webp"
+    },
+    {
+      "index": 8,
+      "kind": "text",
+      "src": "pages/p08.webp"
+    },
+    {
+      "index": 9,
+      "kind": "illustration",
+      "src": "pages/p09.webp"
+    },
+    {
+      "index": 10,
+      "kind": "text",
+      "src": "pages/p10.webp"
+    },
+    {
+      "index": 11,
+      "kind": "illustration",
+      "src": "pages/p11.webp"
+    },
+    {
+      "index": 12,
+      "kind": "text",
+      "src": "pages/p12.webp"
+    },
+    {
+      "index": 13,
+      "kind": "illustration",
+      "src": "pages/p13.webp"
+    },
+    {
+      "index": 14,
+      "kind": "text",
+      "src": "pages/p14.webp"
+    },
+    {
+      "index": 15,
+      "kind": "illustration",
+      "src": "pages/p15.webp"
+    },
+    {
+      "index": 16,
+      "kind": "text",
+      "src": "pages/p16.webp"
+    },
+    {
+      "index": 17,
+      "kind": "illustration",
+      "src": "pages/p17.webp"
+    },
+    {
+      "index": 18,
+      "kind": "text",
+      "src": "pages/p18.webp"
+    },
+    {
+      "index": 19,
+      "kind": "illustration",
+      "src": "pages/p19.webp"
+    },
+    {
+      "index": 20,
+      "kind": "text",
+      "src": "pages/p20.webp"
+    },
+    {
+      "index": 21,
+      "kind": "illustration",
+      "src": "pages/p21.webp"
+    },
+    {
+      "index": 22,
+      "kind": "text",
+      "src": "pages/p22.webp"
+    },
+    {
+      "index": 23,
+      "kind": "illustration",
+      "src": "pages/p23.webp"
+    },
+    {
+      "index": 24,
+      "kind": "text",
+      "src": "pages/p24.webp"
+    },
+    {
+      "index": 25,
+      "kind": "illustration",
+      "src": "pages/p25.webp"
+    },
+    {
+      "index": 26,
+      "kind": "text",
+      "src": "pages/p26.webp"
+    },
+    {
+      "index": 27,
+      "kind": "illustration",
+      "src": "pages/p27.webp"
+    },
+    {
+      "index": 28,
+      "kind": "end",
+      "src": "pages/p28.webp"
+    },
+    {
+      "index": 29,
+      "kind": "endpaper",
+      "src": "pages/p29.webp"
+    },
+    {
+      "index": 30,
+      "kind": "back",
+      "src": "pages/p30.webp"
+    }
+  ]
+}
