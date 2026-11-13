@@ -1,21 +1,46 @@
 # رف الحكايات — 3D story shelf demo
 
-Arabic (RTL) demo: a 3D room with a bookshelf, one readable book (*The Three Princesses*), four "coming soon" books and nine clickable toys (five kinds, some copied). No backend, accounts or payments.
+Arabic (RTL) demo: a 3D room with a bookshelf, two readable books (*The Three Princesses*, *Laila and the Golden Falcon*), two "coming soon" books and nine clickable toys. Accounts with Clerk (email or Google), data in Convex, emails through Gmail. No payments and no file uploads yet.
 
 ## Run
 
 ```sh
 npm install
-npm run dev          # http://localhost:3000
-npm run build        # static site in out/ (host on any static host)
+npx convex dev       # terminal 1: Convex backend (asks you to log in and pick a project the first time)
+npm run dev          # terminal 2: http://localhost:3000
+npx convex run books:seed   # once: puts the 4 demo books in the database
 ```
+
+`npm run build` and `npm run dev` share `.next/`, so stop the dev server before building. Deploy as a normal Next.js app (for example on Vercel); Clerk needs the middleware, so it is no longer a static export.
+
+### Settings
+
+`.env` (Next.js, not committed):
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`: from the Clerk dashboard.
+- `NEXT_PUBLIC_CONVEX_URL`: written to `.env.local` by `npx convex dev`.
+
+Convex environment variables (`npx convex env set NAME value`, or the Convex dashboard):
+- `CLERK_JWT_ISSUER_DOMAIN`: the Clerk Frontend API URL, e.g. `https://optimum-mosquito-9363.clerk.accounts.dev`.
+- `GMAIL_USER`: the sending Gmail address (dreptecc@gmail.com).
+- `GMAIL_APP_PASSWORD`: a Google *app password* for that account (Google Account → Security → 2-Step Verification → App passwords). Until it is set, emails are written to the Convex log instead of sent.
+- `ADMIN_EMAIL`: who gets "new story" emails (defaults to `GMAIL_USER`).
+
+Clerk needs a JWT template named `convex` (claims `aud: "convex"`, `name`, `email`). It already exists in the development instance; a production instance needs its own.
+
+### Data (`convex/`)
+
+- `books`: the shelf. Everyone sees `public` books; signed-in users also see their own `private` ones. `npx convex run books:seed` resets the 4 demo books.
+- `users`: created on first sign-in (`users.store`), which also sends the welcome email.
+- `submissions`: stories sent from «📚 كتبي» → «أضف قصة جديدة» (title and author only). Each one emails `ADMIN_EMAIL`. Move a story through its stages (received → writing → illustrating → ready) by editing `stage` in the Convex dashboard.
 
 ## Where things come from
 
 | Path | Made by |
 |---|---|
 | `public/models/story_room.glb` | Blender: `../assets-src/blender/story_room.blend` (see `../assets/README.md` for node names) |
-| `public/books/three-princesses/` | `python3 build/make_book.py && python3 build/make_book_package.py` (run from the story folder) |
+| `public/books/three-princesses/` | `python3 build/make_book.py && python3 build/make_book_package.py three-princesses` (run from the story folder) |
+| `public/books/laila/` | `python3 build/make_book_lila.py && python3 build/make_book_package.py laila` (sources in `../books_src/laila/`) |
+| `public/covers/` | Placeholder covers for the "coming soon" books, from `../assets-src/textures/cover_*.png` |
 | `public/draco/` | Copied from `node_modules/three/examples/jsm/libs/draco/gltf/` |
 
 ## Code
@@ -45,13 +70,13 @@ npm run build        # static site in out/ (host on any static host)
 
 - **Size:** the model stays small (~730 KB). Pages load spread by spread, about 100 KB each.
 - **Memory:** an iPhone only ever holds about 10 page images in memory.
-- **New books:** a new book is a PDF plus a manifest. No Blender export is needed, which matters once admins upload books.
-
-Note: `npm run build` and `npm run dev` share `.next/`, so stop the dev server before building.
+- **New books:** a new book is a PDF plus a manifest, and a row in `books`. No Blender export is needed. Books can have any even number of pages up to 30; the 3D book shows only as many leaves as the book has.
 
 ## Controls
 
-- **Shelf:** tap a book or the "اقرأ" button to read it, tap a toy to make it jump, spin, glow and throw stars, and drag or scroll to move along the shelf.
+- **Shelf:** 4 books at a time. The ‹ › arrows (or ArrowLeft / ArrowRight) show the next 4; the books tip forward and come back up with new covers. Tap a book to read it, tap a toy to make it jump, spin, glow and throw stars.
+- **Phone, while reading:** swipe right for the next page, left for the previous one. Swipe up hides every button (full-screen reading); swipe down, or the small ⤡ button, brings them back. On Android the browser bars hide too; iPhone Safari does not allow that.
+- **Sound:** each page turn makes a paper sound (the cover a heavier one); the 🔊 button mutes everything.
 - **Book:** ← is next and → is previous (RTL). On a keyboard, ArrowLeft is next and ArrowRight is previous.
 - **Page focus:** tap a page to zoom in on it. "Next" moves to the left page first, then turns the page.
 - **Leaving:** Escape or the phone's Back button leaves page focus, then closes the book.

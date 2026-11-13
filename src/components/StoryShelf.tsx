@@ -2,13 +2,15 @@
 
 import { Suspense, useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import * as THREE from "three";
+import { api } from "../../convex/_generated/api";
 import RoomScene, { type PanState } from "./RoomScene";
 import Overlay from "./Overlay";
-import { books, type BookManifest } from "@/data/books";
-import { initialReader, readerReducer } from "@/lib/reader";
+import { isLocked, SHELF_SLOTS, type BookManifest, type ShelfBook } from "@/data/books";
+import { initialReader, leavesFor, readerReducer } from "@/lib/reader";
 
-const readable = books.find((b) => b.status === "published")!;
+const SWIPE_PX = 60; // finger travel that counts as a swipe
 
 function hasWebGL() {
   try {
@@ -27,26 +29,79 @@ function loadMuted() {
   }
 }
 
+async function fetchManifest(book: ShelfBook) {
+  return (await (await fetch(`${book.basePath}/manifest.json`)).json()) as BookManifest;
+}
+
 export default function StoryShelf() {
   const [state, dispatch] = useReducer(readerReducer, initialReader);
-  const [manifest, setManifest] = useState<BookManifest | null>(null);
   const [muted, setMuted] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [webgl, setWebgl] = useState<boolean | null>(null);
   const [contextLost, setContextLost] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
+  const [immersive, setImmersive] = useState(false); // reading with every button hidden
   const pan = useRef<PanState>({ x: 0, max: 0, metresPerPx: 0.003, init: false });
   const stateRef = useRef(state);
   stateRef.current = state;
+
+  // Signed-in users get a row in Convex (and a welcome email the first time).
+  const { isAuthenticated } = useConvexAuth();
+  const storeUser = useMutation(api.users.store);
+  useEffect(() => {
+    if (isAuthenticated) storeUser().catch(() => { /* tried again on the next sign-in */ });
+  }, [isAuthenticated, storeUser]);
+
+  // Books: public ones plus the user's own, SHELF_SLOTS at a time; arrows scroll the shelf.
+  const books = useQuery(api.books.list);
+  const all = books ?? [];
+  const [offset, setOffset] = useState(0);
+  const pages = Math.max(1, Math.ceil(all.length / SHELF_SLOTS));
+  const shelfPage = Math.min(offset / SHELF_SLOTS, pages - 1);
+  const shelf = Array.from({ length: SHELF_SLOTS }, (_, i) => all[shelfPage * SHELF_SLOTS + i] ?? null);
+  const turnShelf = useCallback((dir: 1 | -1) => {
+    if (stateRef.current.mode !== "shelf") return;
+    setOffset((o) => Math.max(0, Math.min((pages - 1) * SHELF_SLOTS, o + dir * SHELF_SLOTS)));
+  }, [pages]);
+
+  // The open book: which slot it came from and its manifest (page list, PDF, cover colour).
+  const [open, setOpen] = useState<{ book: ShelfBook; slot: number } | null>(null);
+  const [manifest, setManifest] = useState<BookManifest | null>(null);
+  const manifests = useRef(new Map<string, BookManifest>());
+  const openBook = useCallback(async (book: ShelfBook, slot: number) => {
+    if (stateRef.current.mode !== "shelf" || isLocked(book)) return;
+    let m = manifests.current.get(book.slug);
+    if (!m) {
+      try {
+        m = await fetchManifest(book);
+        manifests.current.set(book.slug, m);
+      } catch {
+        setToast("تعذّر فتح الكتاب، حاول مرة أخرى");
+        return;
+      }
+    }
+    setOpen({ book, slot });
+    setManifest(m);
+    dispatch({ type: "OPEN_BOOK", leaves: leavesFor(m.pages.length) });
+  }, []);
+  const onPick = useCallback((slot: number) => {
+    const b = shelf[slot];
+    if (b) void openBook(b, slot);
+  }, [shelf, openBook]);
+  /** From the "my books" list: scroll the shelf to the book first, then take it down. */
+  const readFromList = useCallback((book: ShelfBook) => {
+    const i = all.findIndex((b) => b._id === book._id);
+    if (i < 0) return;
+    const page = Math.floor(i / SHELF_SLOTS);
+    if (page === shelfPage) return void openBook(book, i % SHELF_SLOTS);
+    setOffset(page * SHELF_SLOTS);
+    setTimeout(() => void openBook(book, i % SHELF_SLOTS), 900); // after the covers have flipped
+  }, [all, shelfPage, openBook]);
 
   useEffect(() => {
     setWebgl(hasWebGL());
     setMuted(loadMuted());
     setReducedMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-    fetch(`${readable.basePath}/manifest.json`)
-      .then((r) => r.json())
-      .then(setManifest)
-      .catch(() => setManifest(null));
   }, []);
 
   const toggleMute = () => {
@@ -64,6 +119,19 @@ export default function StoryShelf() {
     const t = setTimeout(() => setToast(null), 2200);
     return () => clearTimeout(t);
   }, [toast]);
+
+  // Full-screen reading: hides every button. It ends when the book goes back to the shelf.
+  const setFullscreen = useCallback((on: boolean) => {
+    setImmersive(on);
+    try {
+      // Android and desktop browsers can also hide their own bars; iPhone Safari cannot, so this may do nothing.
+      if (on && !document.fullscreenElement) void document.documentElement.requestFullscreen?.().catch(() => {});
+      if (!on && document.fullscreenElement) void document.exitFullscreen?.().catch(() => {});
+    } catch { /* not supported */ }
+  }, []);
+  useEffect(() => {
+    if (state.mode !== "table" && immersive) setFullscreen(false);
+  }, [state.mode, immersive, setFullscreen]);
 
   // Phone/browser Back closes page focus, then the book, instead of leaving the site.
   useEffect(() => {
@@ -87,32 +155,48 @@ export default function StoryShelf() {
     dispatch({ type: "CLOSE_BOOK" });
   };
 
-  // Keyboard: in an RTL book, ArrowLeft is "next".
+  // Keyboard: in an RTL book, ArrowLeft is "next" (the next page, or the next shelf of books).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "ArrowLeft") dispatch({ type: "NEXT" });
-      else if (e.key === "ArrowRight") dispatch({ type: "PREV" });
-      else if (e.key === "Escape") {
+      if ((e.target as HTMLElement | null)?.closest?.("input, textarea, .lib")) return;
+      const onShelf = stateRef.current.mode === "shelf";
+      if (e.key === "ArrowLeft") {
+        if (onShelf) turnShelf(1);
+        else dispatch({ type: "NEXT" });
+      } else if (e.key === "ArrowRight") {
+        if (onShelf) turnShelf(-1);
+        else dispatch({ type: "PREV" });
+      } else if (e.key === "Escape") {
         if (stateRef.current.focus) dispatch({ type: "UNFOCUS" });
         else closeBook();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [turnShelf]);
 
-  // Shelf scrolling: drag or wheel moves the camera along the shelf.
-  const drag = useRef<{ id: number; x: number } | null>(null);
+  // Shelf: drag or wheel moves the camera along the shelf (phones). Reading: swipe to turn pages
+  // (finger to the right = next, as in an Arabic book), swipe up to hide the buttons, down to show them.
+  const drag = useRef<{ id: number; x: number; x0: number; y0: number } | null>(null);
   const onPointerDown = (e: React.PointerEvent) => {
-    if (stateRef.current.mode === "shelf") drag.current = { id: e.pointerId, x: e.clientX };
+    drag.current = { id: e.pointerId, x: e.clientX, x0: e.clientX, y0: e.clientY };
   };
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current;
-    if (!d || d.id !== e.pointerId) return;
+    if (!d || d.id !== e.pointerId || stateRef.current.mode !== "shelf") return;
     pan.current.x -= (e.clientX - d.x) * pan.current.metresPerPx;
     d.x = e.clientX;
   };
-  const endDrag = () => { drag.current = null; };
+  const endDrag = (e: React.PointerEvent) => {
+    const d = drag.current;
+    drag.current = null;
+    if (!d || d.id !== e.pointerId || stateRef.current.mode !== "table") return;
+    const dx = e.clientX - d.x0;
+    const dy = e.clientY - d.y0;
+    if (Math.abs(dx) > SWIPE_PX && Math.abs(dx) > 1.5 * Math.abs(dy)) dispatch({ type: dx > 0 ? "NEXT" : "PREV" });
+    else if (Math.abs(dy) > SWIPE_PX && Math.abs(dy) > 1.5 * Math.abs(dx)) setFullscreen(dy < 0);
+  };
+  const cancelDrag = () => { drag.current = null; };
   const onWheel = (e: React.WheelEvent) => {
     if (stateRef.current.mode !== "shelf") return;
     pan.current.x -= (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * pan.current.metresPerPx;
@@ -122,10 +206,17 @@ export default function StoryShelf() {
     return (
       <main className="fallback" dir="rtl">
         <h1>رَفُّ الحِكايات</h1>
-        <p>{contextLost ? "توقّف العرض ثلاثي الأبعاد. أعد تحميل الصفحة للمحاولة مرة أخرى." : "هذا الجهاز لا يدعم العرض ثلاثي الأبعاد، لكن يمكنك قراءة الكتاب."}</p>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={`${readable.basePath}/pages/p01.webp`} alt="غلاف كتاب الأميرات الثلاث" />
-        <a className="btn primary" href={`${readable.basePath}/The_Three_Princesses.pdf`} download>تحميل الكتاب (PDF)</a>
+        <p>{contextLost ? "توقّف العرض ثلاثي الأبعاد. أعد تحميل الصفحة للمحاولة مرة أخرى." : "هذا الجهاز لا يدعم العرض ثلاثي الأبعاد، لكن يمكنك قراءة الكتب."}</p>
+        {all.filter((b) => !isLocked(b)).map((b) => (
+          <section key={b._id} className="fallback">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={b.cover} alt={`غلاف كتاب ${b.title_ar}`} />
+            <button className="btn primary" onClick={async () => {
+              const m = await fetchManifest(b);
+              location.href = `${b.basePath}/${m.pdf}`;
+            }}>تحميل «{b.title_ar}» (PDF)</button>
+          </section>
+        ))}
       </main>
     );
   }
@@ -137,7 +228,7 @@ export default function StoryShelf() {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
-        onPointerCancel={endDrag}
+        onPointerCancel={cancelDrag}
         onWheel={onWheel}
       >
         {webgl && (
@@ -178,9 +269,13 @@ export default function StoryShelf() {
                 state={state}
                 dispatch={dispatch}
                 manifest={manifest}
+                basePath={open?.book.basePath ?? ""}
+                shelf={shelf}
+                openSlot={open?.slot ?? 0}
                 muted={muted}
                 reducedMotion={reducedMotion}
                 onLocked={onLocked}
+                onPick={onPick}
                 pan={pan}
               />
             </Suspense>
@@ -193,10 +288,17 @@ export default function StoryShelf() {
         muted={muted}
         onToggleMute={toggleMute}
         onClose={closeBook}
-        pdfHref={`${readable.basePath}/The_Three_Princesses.pdf`}
-        totalPages={manifest?.pages.length ?? 30}
+        pdfHref={open && manifest ? `${open.book.basePath}/${manifest.pdf}` : ""}
+        totalPages={manifest?.pages.length ?? 0}
         toast={toast}
         onLocked={onLocked}
+        books={all}
+        onReadBook={readFromList}
+        shelfPage={shelfPage}
+        shelfPages={pages}
+        onTurnShelf={turnShelf}
+        immersive={immersive}
+        onImmersive={setFullscreen}
       />
     </main>
   );

@@ -4,7 +4,7 @@
 // spine on the right at x = 0, pages extending to -x).
 
 import * as THREE from "three";
-import { LEAVES } from "./reader";
+import { MAX_LEAVES } from "./reader";
 
 export const PAGE_W = 0.254;
 export const PAGE_H = 0.1905;
@@ -156,7 +156,7 @@ export function buildBook(book: THREE.Object3D) {
 
   // Front faces up on the left stack (spine at u = 1); back faces up after the turn (spine at u = 0).
   const leaves: Leaf[] = [];
-  for (let k = 1; k <= LEAVES; k++) {
+  for (let k = 1; k <= MAX_LEAVES; k++) {
     const hinge = new THREE.Object3D();
     hinge.name = `Leaf_${k}`;
     hinge.position.copy(template.position);
@@ -266,7 +266,8 @@ function shapeLeaf(leaf: Leaf, theta: number) {
 
 /**
  * Place every part for the given turn progress.
- * u[0] is the cover, u[k] is leaf k (0 = unturned, 1 = turned).
+ * u[0] is the cover, u[k] is leaf k (0 = unturned, 1 = turned). Leaves past the end of `u`
+ * are not part of this book and stay hidden.
  */
 export function poseBook(parts: BookParts, u: number[], shaped: Float32Array) {
   const leafU = u.slice(1);
@@ -289,6 +290,10 @@ export function poseBook(parts: BookParts, u: number[], shaped: Float32Array) {
   const topLeft = leafU.indexOf(0); // first unturned leaf
   const topRight = leafU.lastIndexOf(1); // last turned leaf
   parts.leaves.forEach((leaf, i) => {
+    if (i >= leafU.length) {
+      if (leaf.visible) { leaf.hinge.visible = false; leaf.visible = false; }
+      return;
+    }
     const lu = leafU[i];
     const moving = lu > 0 && lu < 1;
     const show = moving || i === topLeft || i === topRight;

@@ -1,6 +1,5 @@
-/** Static export: the demo has no server, so it can be hosted on any static host. */
+/** Runs as a normal Next.js app (Clerk needs its middleware), e.g. on Vercel. */
 const nextConfig = {
-  output: "export",
   images: { unoptimized: true },
   reactStrictMode: true,
 };

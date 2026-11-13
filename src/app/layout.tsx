@@ -1,5 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Baloo_Bhaijaan_2 } from "next/font/google";
+import { ClerkProvider } from "@clerk/nextjs";
+import { arSA } from "@clerk/localizations";
+import ConvexClientProvider from "./ConvexClientProvider";
 import "./globals.css";
 
 // next/font downloads the font at build time and serves it from this site (no request to Google at runtime).
@@ -20,7 +23,11 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ar" dir="rtl">
-      <body className={baloo.className}>{children}</body>
+      <body className={baloo.className}>
+        <ClerkProvider localization={arSA}>
+          <ConvexClientProvider>{children}</ConvexClientProvider>
+        </ClerkProvider>
+      </body>
     </html>
   );
 }

@@ -96,6 +96,11 @@ body { -webkit-tap-highlight-color: transparent; }
 .shelf-label.locked .shelf-tag { background: var(--gold); color: var(--ink); }
 
 .top-tools { display: flex; align-items: center; gap: 8px; }
+.shelf-arrow { position: absolute; top: 50%; transform: translateY(-50%); font-size: 30px; }
+.shelf-arrow.left { left: max(12px, env(safe-area-inset-left)); }
+.shelf-arrow.right { right: max(12px, env(safe-area-inset-right)); }
+.exit-full { position: absolute; top: max(12px, env(safe-area-inset-top)); left: 12px; opacity: .55; }
+.empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 24px; }
 .btn.small { min-height: 36px; font-size: 14px; padding: 4px 14px; }
 
 /* "My books" mock-up */
