@@ -7,7 +7,7 @@ const StoryShelf = dynamic(() => import("@/components/StoryShelf"), {
   ssr: false,
   loading: () => <div className="loading">جارٍ تجهيز الرف…</div>,
 });
- 
+
 export default function Home() {
   return <StoryShelf />;
 }
