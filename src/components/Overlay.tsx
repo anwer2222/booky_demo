@@ -3,6 +3,8 @@
 import { useEffect, useState, type Dispatch } from "react";
 import { Show, SignInButton, UserButton } from "@clerk/nextjs";
 import LibraryPanel from "./LibraryPanel";
+import InfoPanel from "./InfoPanel";
+import StoryOptions from "./StoryOptions";
 import type { ShelfBook } from "@/data/books";
 import { canNext, canPrev, visiblePages, type ReaderAction, type ReaderState } from "@/lib/reader";
 
@@ -17,6 +19,7 @@ type Props = {
   toast: string | null;
   onLocked: (title: string) => void;
   books: ShelfBook[];
+  openBook: ShelfBook | null;
   onReadBook: (b: ShelfBook) => void;
   shelfPage: number;
   shelfPages: number;
@@ -29,6 +32,8 @@ type Props = {
 export default function Overlay(p: Props) {
   const { state, dispatch } = p;
   const [library, setLibrary] = useState(false);
+  const [info, setInfo] = useState(false);
+  const [options, setOptions] = useState(false);
   const reading = state.mode === "table";
   const pages = visiblePages(state.turned);
   const where = !pages
@@ -62,8 +67,15 @@ export default function Overlay(p: Props) {
   return (
     <div className="overlay" dir="rtl">
       <header className="topbar">
-        <h1 className="brand">رَفُّ الحِكايات</h1>
+        <h1 className="brand">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/raffy_logo.svg" alt="" />
+          رَفُّ الحِكايات
+        </h1>
         <div className="top-tools">
+          {state.mode === "shelf" && (
+            <button className="icon-btn" onClick={() => setInfo(true)} aria-label="عن رف الحكايات">ⓘ</button>
+          )}
           {state.mode === "shelf" && (
             <>
               <Show when="signed-in">
@@ -102,7 +114,7 @@ export default function Overlay(p: Props) {
         <>
           <div className="top-actions">
             <button className="btn" onClick={p.onClose}>→ العودة إلى الرف</button>
-            {p.pdfHref && <a className="btn" href={p.pdfHref} download>تحميل PDF</a>}
+            {p.openBook && <button className="btn" onClick={() => setOptions(true)}>خيارات القصة</button>}
             {state.focus && (
               <button className="btn" onClick={() => dispatch({ type: "UNFOCUS" })}>عرض الصفحتين</button>
             )}
@@ -132,6 +144,11 @@ export default function Overlay(p: Props) {
           onRead={(b) => { setLibrary(false); p.onReadBook(b); }}
           onLocked={p.onLocked}
         />
+      )}
+
+      {info && state.mode === "shelf" && <InfoPanel onClose={() => setInfo(false)} />}
+      {options && reading && p.openBook && (
+        <StoryOptions book={p.openBook} pdfHref={p.pdfHref} onClose={() => setOptions(false)} />
       )}
 
       {p.toast && <div className="toast" role="status">{p.toast}</div>}

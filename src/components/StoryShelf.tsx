@@ -2,9 +2,10 @@
 
 import { Suspense, useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
 import * as THREE from "three";
 import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 import RoomScene, { type PanState } from "./RoomScene";
 import Overlay from "./Overlay";
 import { isLocked, SHELF_SLOTS, type BookManifest, type ShelfBook } from "@/data/books";
@@ -51,6 +52,20 @@ export default function StoryShelf() {
   useEffect(() => {
     if (isAuthenticated) storeUser().catch(() => { /* tried again on the next sign-in */ });
   }, [isAuthenticated, storeUser]);
+
+  // Back from Moyasar's payment page (/?order=<id>): confirm the payment with the server.
+  const verify = useAction(api.payments.verify);
+  useEffect(() => {
+    const orderId = new URLSearchParams(location.search).get("order");
+    if (!orderId || !isAuthenticated) return;
+    history.replaceState(null, "", location.pathname);
+    verify({ orderId: orderId as Id<"orders"> })
+      .then((status) => setToast(
+        status === "paid" ? "تم الدفع، شكرًا لك! أرسلنا التفاصيل إلى بريدك."
+          : status === "failed" ? "لم يكتمل الدفع. يمكنك المحاولة مرة أخرى من «كتبي»." : "لم يكتمل الدفع بعد.",
+      ))
+      .catch(() => setToast("تعذّر التحقق من الدفع، سنراجعه ونعلمك بالبريد."));
+  }, [isAuthenticated, verify]);
 
   // Books: public ones plus the user's own, SHELF_SLOTS at a time; arrows scroll the shelf.
   const books = useQuery(api.books.list);
@@ -116,7 +131,7 @@ export default function StoryShelf() {
   }, []);
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2200);
+    const t = setTimeout(() => setToast(null), toast.length > 30 ? 4500 : 2200);
     return () => clearTimeout(t);
   }, [toast]);
 
@@ -293,6 +308,7 @@ export default function StoryShelf() {
         toast={toast}
         onLocked={onLocked}
         books={all}
+        openBook={open?.book ?? null}
         onReadBook={readFromList}
         shelfPage={shelfPage}
         shelfPages={pages}

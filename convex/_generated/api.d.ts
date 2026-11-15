@@ -10,6 +10,11 @@
 
 import type * as books from "../books.js";
 import type * as emails from "../emails.js";
+import type * as http from "../http.js";
+import type * as logo from "../logo.js";
+import type * as orders from "../orders.js";
+import type * as payments from "../payments.js";
+import type * as pricing from "../pricing.js";
 import type * as submissions from "../submissions.js";
 import type * as users from "../users.js";
 
@@ -22,6 +27,11 @@ import type {
 declare const fullApi: ApiFromModules<{
   books: typeof books;
   emails: typeof emails;
+  http: typeof http;
+  logo: typeof logo;
+  orders: typeof orders;
+  payments: typeof payments;
+  pricing: typeof pricing;
   submissions: typeof submissions;
   users: typeof users;
 }>;

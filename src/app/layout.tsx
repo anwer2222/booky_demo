@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Baloo_Bhaijaan_2 } from "next/font/google";
+import { Baloo_Bhaijaan_2, Marhey } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { arSA } from "@clerk/localizations";
 import ConvexClientProvider from "./ConvexClientProvider";
@@ -7,6 +7,8 @@ import "./globals.css";
 
 // next/font downloads the font at build time and serves it from this site (no request to Google at runtime).
 const baloo = Baloo_Bhaijaan_2({ subsets: ["arabic", "latin"], weight: ["500", "700", "800"], display: "swap" });
+// Site title and headings
+const marhey = Marhey({ subsets: ["arabic", "latin"], weight: ["500", "700"], display: "swap", variable: "--font-brand" });
 
 export const metadata: Metadata = {
   title: "رف الحكايات",
@@ -23,7 +25,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ar" dir="rtl">
-      <body className={baloo.className}>
+      <body className={`${baloo.className} ${marhey.variable}`}>
         <ClerkProvider localization={arSA}>
           <ConvexClientProvider>{children}</ConvexClientProvider>
         </ClerkProvider>

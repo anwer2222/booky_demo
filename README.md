@@ -24,6 +24,8 @@ Convex environment variables (`npx convex env set NAME value`, or the Convex das
 - `GMAIL_USER`: the sending Gmail address (dreptecc@gmail.com).
 - `GMAIL_APP_PASSWORD`: a Google *app password* for that account (Google Account → Security → 2-Step Verification → App passwords). Until it is set, emails are written to the Convex log instead of sent.
 - `ADMIN_EMAIL`: who gets "new story" emails (defaults to `GMAIL_USER`).
+- `MOYASAR_SECRET_KEY`: Moyasar secret key (`sk_test_...` while testing). Without it, the pay buttons say payments are not active yet.
+- `SITE_URL`: where Moyasar sends the customer back after paying (`http://localhost:3000` in development, the real domain in production).
 
 Clerk needs a JWT template named `convex` (claims `aud: "convex"`, `name`, `email`). It already exists in the development instance; a production instance needs its own.
 
@@ -31,7 +33,14 @@ Clerk needs a JWT template named `convex` (claims `aud: "convex"`, `name`, `emai
 
 - `books`: the shelf. Everyone sees `public` books; signed-in users also see their own `private` ones. `npx convex run books:seed` resets the 4 demo books.
 - `users`: created on first sign-in (`users.store`), which also sends the welcome email.
-- `submissions`: stories sent from «📚 كتبي» → «أضف قصة جديدة» (title and author only). Each one emails `ADMIN_EMAIL`. Move a story through its stages (received → writing → illustrating → ready) by editing `stage` in the Convex dashboard.
+- `submissions`: stories sent from «📚 كتبي» → «أضف قصة جديدة»: story files (txt, docx or photos), an optional hero picture (stored in Convex file storage), page count and price. The admin email carries the files as attachments. Move a story through its stages (received → writing → illustrating → ready) by editing `stage` in the Convex dashboard.
+- `orders`: payments. Story orders (when the story is not free) and printed copies (from «خيارات القصة» in the reader, optionally as a gift).
+
+### Prices and payments
+
+- Prices live in one file, `convex/pricing.ts`, used both to charge and to display. First story free (20 pages); 20 pages 25 SAR, 30 pages 40 SAR, then 2 SAR a page. **Print prices there are placeholders** (79 SAR a copy, 25 SAR delivery, 10 SAR gift wrap).
+- Payment uses Moyasar hosted invoices (`convex/payments.ts`): the server creates the invoice for the amount it worked out, the customer pays on Moyasar's page (Arabic), and comes back to `/?order=<id>`. The order counts as paid only after the server reads the invoice back from Moyasar as `paid` with the right amount. Moyasar also POSTs to `<CONVEX_SITE_URL>/moyasar/callback` (`convex/http.ts`), so a payment is recorded even if the customer closes the tab.
+- On payment: the customer gets a receipt email; the admin gets the story (with attachments) or the print order with the delivery address.
 
 ## Where things come from
 

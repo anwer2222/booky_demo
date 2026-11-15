@@ -1,9 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import Sheet from "./Sheet";
 import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
+import { MAX_FILE_MB, MAX_FILES, MAX_TOTAL_MB, PAGE_OPTIONS, storyCharge, storyPrice } from "../../convex/pricing";
 import { isLocked, STAGES, type ShelfBook } from "@/data/books";
+import { usePay } from "@/lib/pay";
+import { PaymentLogos, Price } from "./Price";
 
 type Tab = "books" | "progress" | "new";
 type Visibility = "public" | "private";
@@ -18,150 +23,165 @@ type Props = {
 const VIS_AR: Record<Visibility, string> = { private: "لي فقط", public: "للجميع" };
 
 // "My books" for a signed-in user: the books they can read, their stories being made into books,
-// and a form to send a new story. Sending saves the title and author only; file upload comes later.
+// and the form to send a new story.
 export default function LibraryPanel({ books, onClose, onRead, onLocked }: Props) {
   const [tab, setTab] = useState<Tab>("books");
   const submissions = useQuery(api.submissions.mine);
-  const dialog = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    dialog.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.stopImmediatePropagation(); onClose(); }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
-
-  const tabs: [Tab, string][] = [
-    ["books", "كتبي"],
-    ["progress", `قيد الإعداد${submissions?.length ? ` (${submissions.length})` : ""}`],
-    ["new", "+ أضف قصة جديدة"],
-  ];
+  const { pay, paying, error } = usePay();
 
   return (
-    <div className="lib-backdrop" onClick={onClose}>
-      <div
-        className="lib"
-        role="dialog"
-        aria-modal="true"
-        aria-label="مكتبتي"
-        tabIndex={-1}
-        ref={dialog}
-        onClick={(e) => e.stopPropagation()}
-        onPointerDown={(e) => e.stopPropagation()}
-        onWheel={(e) => e.stopPropagation()}
-      >
-        <header className="lib-head">
-          <h2>مكتبتي</h2>
-          <button className="icon-btn" onClick={onClose} aria-label="إغلاق">✕</button>
-        </header>
-        <nav className="lib-tabs" role="tablist">
-          {tabs.map(([id, label]) => (
-            <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "on" : ""} onClick={() => setTab(id)}>
-              {label}
-            </button>
-          ))}
-        </nav>
+    <Sheet
+      title="مكتبتي"
+      tabs={[
+        ["books", "كتبي"],
+        ["progress", `قيد الإعداد${submissions?.length ? ` (${submissions.length})` : ""}`],
+        ["new", "+ أضف قصة جديدة"],
+      ]}
+      tab={tab}
+      onTab={setTab}
+      onClose={onClose}
+    >
+      {tab === "books" && (
+        <ul className="lib-grid">
+          {books.map((b) => {
+            const locked = isLocked(b);
+            return (
+              <li key={b._id} className="card">
+                <button className="card-cover" onClick={() => (locked ? onLocked(b.title_ar) : onRead(b))} aria-label={b.title_ar}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={b.cover} alt="" loading="lazy" />
+                  {locked && <span className="ribbon">قريبًا</span>}
+                </button>
+                <div className="card-text">
+                  <h3>{b.title_ar}</h3>
+                  <p className="muted">{VIS_AR[b.visibility]}</p>
+                </div>
+                {locked ? (
+                  <button className="btn small" disabled>قريبًا</button>
+                ) : (
+                  <button className="btn small primary" onClick={() => onRead(b)}>اقرأ</button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
-        <div className="lib-body">
-          {tab === "books" && (
-            <ul className="lib-grid">
-              {books.map((b) => {
-                const locked = isLocked(b);
-                return (
-                  <li key={b._id} className="card">
-                    <button className="card-cover" onClick={() => (locked ? onLocked(b.title_ar) : onRead(b))} aria-label={b.title_ar}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={b.cover} alt="" loading="lazy" />
-                      {locked && <span className="ribbon">قريبًا</span>}
-                    </button>
-                    <div className="card-text">
-                      <h3>{b.title_ar}</h3>
-                      <p className="muted">{VIS_AR[b.visibility]}</p>
-                    </div>
-                    {locked ? (
-                      <button className="btn small" disabled>قريبًا</button>
-                    ) : (
-                      <div className="card-actions">
-                        <button className="btn small primary" onClick={() => onRead(b)}>اقرأ</button>
-                        {b.pdf && <a className="btn small" href={`${b.basePath}/${b.pdf}`} download>PDF</a>}
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+      {tab === "progress" && (
+        submissions === undefined ? (
+          <p className="muted">جارٍ التحميل…</p>
+        ) : submissions.length === 0 ? (
+          <div className="empty">
+            <p>لم ترسل أي قصة بعد.</p>
+            <button className="btn primary" onClick={() => setTab("new")}>+ أضف قصة جديدة</button>
+          </div>
+        ) : (
+          <ul className="lib-list">
+            {error && <p className="note" role="alert">{error}</p>}
+            {submissions.map((s) => {
+              const waiting = s.payment === "pending";
+              const at = STAGES.findIndex((x) => x.id === s.stage);
+              return (
+                <li key={s._id} className="card row">
+                  <div className="card-text">
+                    <h3>{s.title_ar}</h3>
+                    <p className="muted">{s.child_ar} · {VIS_AR[s.visibility]}{s.pages ? ` · ${s.pages} صفحة` : ""}{s.fileCount ? ` · ${s.fileCount} ملف` : ""}</p>
+                    <p className="muted">
+                      أُرسلت في {new Date(s._creationTime).toLocaleDateString("ar", { day: "numeric", month: "long" })}{" "}
+                      {s.payment === "free" && <span className="badge ok">مجانية</span>}
+                      {s.payment === "paid" && <span className="badge ok">مدفوعة</span>}
+                      {waiting && <span className="badge wait">بانتظار الدفع</span>}
+                    </p>
+                  </div>
+                  {waiting && s.orderId ? (
+                    <button className="btn primary" disabled={paying} onClick={() => pay(s.orderId!)}>أكمل الدفع</button>
+                  ) : (
+                    <ol className="steps" aria-label="مراحل الإعداد">
+                      {STAGES.map((st, i) => (
+                        <li key={st.id} className={i < at ? "done" : i === at ? "now" : ""}>
+                          <span className="dot">{i < at ? "✓" : i + 1}</span>
+                          <span>{st.label_ar}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )
+      )}
 
-          {tab === "progress" && (
-            submissions === undefined ? (
-              <p className="muted">جارٍ التحميل…</p>
-            ) : submissions.length === 0 ? (
-              <div className="empty">
-                <p>لم ترسل أي قصة بعد.</p>
-                <button className="btn primary" onClick={() => setTab("new")}>+ أضف قصة جديدة</button>
-              </div>
-            ) : (
-              <ul className="lib-list">
-                {submissions.map((s) => {
-                  const at = STAGES.findIndex((x) => x.id === s.stage);
-                  return (
-                    <li key={s._id} className="card row">
-                      <div className="card-text">
-                        <h3>{s.title_ar}</h3>
-                        <p className="muted">{s.child_ar} · {VIS_AR[s.visibility]}</p>
-                        <p className="muted">أُرسلت في {new Date(s._creationTime).toLocaleDateString("ar", { day: "numeric", month: "long" })}</p>
-                      </div>
-                      <ol className="steps" aria-label="مراحل الإعداد">
-                        {STAGES.map((st, i) => (
-                          <li key={st.id} className={i < at ? "done" : i === at ? "now" : ""}>
-                            <span className="dot">{i < at ? "✓" : i + 1}</span>
-                            <span>{st.label_ar}</span>
-                          </li>
-                        ))}
-                      </ol>
-                    </li>
-                  );
-                })}
-              </ul>
-            )
-          )}
-
-          {tab === "new" && <NewStoryForm onSent={() => setTab("progress")} />}
-        </div>
-      </div>
-    </div>
+      {tab === "new" && <NewStoryForm onSent={() => setTab("progress")} />}
+    </Sheet>
   );
 }
 
+const STORY_ACCEPT = ".txt,.docx,image/jpeg,image/png,image/webp,image/heic,image/heif";
+const MB = 1024 * 1024;
+
+/** The browser leaves .docx (and sometimes .heic) without a type; the server checks the type. */
+function contentType(f: File) {
+  if (f.type) return f.type;
+  const ext = f.name.split(".").pop()?.toLowerCase();
+  return ext === "docx" ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    : ext === "txt" ? "text/plain" : ext === "heic" ? "image/heic" : "application/octet-stream";
+}
+
 function NewStoryForm({ onSent }: { onSent: () => void }) {
+  const uploadUrl = useMutation(api.submissions.uploadUrl);
   const create = useMutation(api.submissions.create);
+  const firstFree = useQuery(api.submissions.firstIsFree) ?? false;
+  const { pay } = usePay();
   const [title, setTitle] = useState("");
   const [child, setChild] = useState("");
+  const [pages, setPages] = useState<number>(20);
   const [visibility, setVisibility] = useState<Visibility>("private");
   const [consent, setConsent] = useState(false);
-  const [files, setFiles] = useState<string[]>([]);
-  const [sending, setSending] = useState(false);
+  const [files, setFiles] = useState<File[]>([]);
+  const [hero, setHero] = useState<File | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const ready = title.trim() && child.trim() && consent && !sending;
+
+  const total = files.reduce((n, f) => n + f.size, 0) + (hero?.size ?? 0);
+  const fileProblem =
+    files.length > MAX_FILES ? `حتى ${MAX_FILES} ملفات فقط.`
+      : [...files, ...(hero ? [hero] : [])].some((f) => f.size > MAX_FILE_MB * MB) ? `كل ملف أقل من ${MAX_FILE_MB} ميجابايت.`
+        : total > MAX_TOTAL_MB * MB ? `الملفات معًا أقل من ${MAX_TOTAL_MB} ميجابايت.` : null;
+  const charge = storyCharge(pages, firstFree);
+  const ready = title.trim() && child.trim() && files.length > 0 && !fileProblem && consent && !status;
+
+  const upload = async (f: File) => {
+    const res = await fetch(await uploadUrl(), { method: "POST", headers: { "Content-Type": contentType(f) }, body: f });
+    if (!res.ok) throw new Error("upload failed");
+    const { storageId } = (await res.json()) as { storageId: Id<"_storage"> };
+    return { id: storageId, name: f.name };
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ready) return;
-    setSending(true);
     setError(null);
     try {
-      await create({ title_ar: title, child_ar: child, visibility });
+      setStatus("جارٍ رفع الملفات…");
+      const uploaded = await Promise.all(files.map(upload));
+      const heroFile = hero ? await upload(hero) : undefined;
+      setStatus("جارٍ الإرسال…");
+      const { orderId } = await create({ title_ar: title, child_ar: child, visibility, pages, files: uploaded, hero: heroFile });
+      if (orderId) {
+        setStatus("جارٍ فتح صفحة الدفع…");
+        await pay(orderId); // on success the page moves to Moyasar; otherwise "أكمل الدفع" waits in the list
+      }
       onSent();
     } catch {
       setError("لم تُرسَل القصة، حاول مرة أخرى.");
-      setSending(false);
+      setStatus(null);
     }
   };
 
   return (
     <form className="lib-form" onSubmit={submit}>
+      {firstFree && <div className="free">🎁 قصتك الأولى مجانية حتى ٢٠ صفحة!</div>}
       <label>
         عنوان القصة
         <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} placeholder="مثلًا: القطة التي أحبّت المطر" />
@@ -171,11 +191,23 @@ function NewStoryForm({ onSent }: { onSent: () => void }) {
         <input type="text" value={child} onChange={(e) => setChild(e.target.value)} maxLength={80} placeholder="مثلًا: ليان، ٧ سنوات" />
       </label>
       <label className="drop">
-        <input type="file" multiple accept=".txt,.docx,image/*" onChange={(e) => setFiles(Array.from(e.target.files ?? []).map((f) => f.name))} />
+        <input type="file" multiple accept={STORY_ACCEPT} onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
         <span className="drop-icon" aria-hidden>📄</span>
-        <span>ملف القصة: نص (txt) أو وورد (docx) أو صور الصفحات المكتوبة بخط اليد</span>
-        <span className="muted">رفع الملفات قريبًا. سنتواصل معك لاستلام القصة.</span>
-        {files.length > 0 && <span className="muted">{files.join("، ")}</span>}
+        <span><b>ملفات القصة</b>: نص (txt) أو وورد (docx) أو صور الصفحات المكتوبة بخط اليد</span>
+        <span className="muted">{files.length ? files.map((f) => f.name).join("، ") : `حتى ${MAX_FILES} ملفات`}</span>
+      </label>
+      <label className="drop">
+        <input type="file" accept="image/*" onChange={(e) => setHero(e.target.files?.[0] ?? null)} />
+        <span className="drop-icon" aria-hidden>🦸</span>
+        <span><b>صورة البطل</b> (اختياري): رسمة طفلك للبطل، أو صورة نرسم البطل على شكلها</span>
+        {hero && <span className="muted">{hero.name}</span>}
+      </label>
+      {fileProblem && <p className="note" role="alert">{fileProblem}</p>}
+      <label>
+        عدد صفحات الكتاب
+        <select value={pages} onChange={(e) => setPages(Number(e.target.value))}>
+          {PAGE_OPTIONS.map((n) => <option key={n} value={n}>{n} صفحة — {storyPrice(n)} ر.س</option>)}
+        </select>
       </label>
       <fieldset>
         <legend>من يرى الكتاب؟</legend>
@@ -183,11 +215,16 @@ function NewStoryForm({ onSent }: { onSent: () => void }) {
         <label className="radio"><input type="radio" name="vis" checked={visibility === "public"} onChange={() => setVisibility("public")} /> الجميع على الرف العام</label>
       </fieldset>
       <label className="radio">
-        <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} /> أنا وليّ الأمر، وأوافق على إرسال القصة
+        <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} /> أنا وليّ الأمر، وأوافق على إرسال القصة وعلى الشروط والأحكام
       </label>
-      <p className="muted">الكتاب الأول مجاني. يصمّم فريقنا الكتاب يدويًا، وتتابع مراحله من «قيد الإعداد».</p>
+      <div className="price-box">
+        <div className="price-row"><span>كتاب من {pages} صفحة</span><span><Price n={storyPrice(pages)} /></span></div>
+        {firstFree && <div className="price-row"><span>خصم القصة الأولى</span><span>− <Price n={storyPrice(20)} /></span></div>}
+        <div className="price-row total"><span>الإجمالي</span><span>{charge ? <Price n={charge} /> : "مجانًا"}</span></div>
+      </div>
       {error && <p className="note" role="alert">{error}</p>}
-      <button className="btn primary" type="submit" disabled={!ready}>{sending ? "جارٍ الإرسال…" : "أرسل القصة"}</button>
+      <button className="btn primary" type="submit" disabled={!ready}>{status ?? (charge ? <>أرسل القصة وادفع <Price n={charge} /></> : "أرسل القصة")}</button>
+      {charge > 0 && <PaymentLogos />}
     </form>
   );
 }
