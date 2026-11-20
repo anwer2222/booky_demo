@@ -2,11 +2,14 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { ConvexError } from "convex/values";
 import Sheet from "./Sheet";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { MAX_FILE_MB, MAX_FILES, MAX_TOTAL_MB, PAGE_OPTIONS, storyCharge, storyPrice } from "../../convex/pricing";
-import { isLocked, STAGES, type ShelfBook } from "@/data/books";
+import { CATEGORIES, categoryLabel } from "../../convex/categories";
+import { isLocked, lockLabel, STAGES, type ShelfBook } from "@/data/books";
+import { addGuestToken } from "@/lib/guest";
 import { usePay } from "@/lib/pay";
 import { PaymentLogos, Price } from "./Price";
 
@@ -17,15 +20,16 @@ type Props = {
   books: ShelfBook[];
   onClose: () => void;
   onRead: (b: ShelfBook) => void;
-  onLocked: (title: string) => void;
+  onLocked: (b: ShelfBook) => void;
+  initialTab?: Tab;
 };
 
 const VIS_AR: Record<Visibility, string> = { private: "لي فقط", public: "للجميع" };
 
 // "My books" for a signed-in user: the books they can read, their stories being made into books,
 // and the form to send a new story.
-export default function LibraryPanel({ books, onClose, onRead, onLocked }: Props) {
-  const [tab, setTab] = useState<Tab>("books");
+export default function LibraryPanel({ books, onClose, onRead, onLocked, initialTab = "books" }: Props) {
+  const [tab, setTab] = useState<Tab>(initialTab);
   const submissions = useQuery(api.submissions.mine);
   const { pay, paying, error } = usePay();
 
@@ -47,17 +51,17 @@ export default function LibraryPanel({ books, onClose, onRead, onLocked }: Props
             const locked = isLocked(b);
             return (
               <li key={b._id} className="card">
-                <button className="card-cover" onClick={() => (locked ? onLocked(b.title_ar) : onRead(b))} aria-label={b.title_ar}>
+                <button className="card-cover" onClick={() => (locked ? onLocked(b) : onRead(b))} aria-label={b.title_ar}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={b.cover} alt="" loading="lazy" />
-                  {locked && <span className="ribbon">قريبًا</span>}
+                  {locked && <span className="ribbon">{lockLabel(b)}</span>}
                 </button>
                 <div className="card-text">
                   <h3>{b.title_ar}</h3>
-                  <p className="muted">{VIS_AR[b.visibility]}</p>
+                  <p className="muted">{VIS_AR[b.visibility]}{b.category ? ` · ${categoryLabel(b.category)}` : ""}</p>
                 </div>
                 {locked ? (
-                  <button className="btn small" disabled>قريبًا</button>
+                  <button className="btn small" disabled>{lockLabel(b)}</button>
                 ) : (
                   <button className="btn small primary" onClick={() => onRead(b)}>اقرأ</button>
                 )}
@@ -128,12 +132,20 @@ function contentType(f: File) {
     : ext === "txt" ? "text/plain" : ext === "heic" ? "image/heic" : "application/octet-stream";
 }
 
-function NewStoryForm({ onSent }: { onSent: () => void }) {
+const FULL_AR = "نعمل الآن على قصص عائلات كثيرة، ولا نستقبل قصصًا جديدة مؤقتًا. عُد إلينا بعد أيام قليلة!";
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+/** The "new story" form. `guest`: sent without an account, so it asks for an email. */
+export function NewStoryForm({ onSent, guest = false }: { onSent: () => void; guest?: boolean }) {
   const uploadUrl = useMutation(api.submissions.uploadUrl);
   const create = useMutation(api.submissions.create);
-  const firstFree = useQuery(api.submissions.firstIsFree) ?? false;
+  const [email, setEmail] = useState("");
+  const emailOk = EMAIL.test(email.trim());
+  const firstFree = useQuery(api.submissions.firstIsFree, guest ? { email: emailOk ? email.trim() : undefined } : {}) ?? false;
+  const canSend = useQuery(api.submissions.canSend, guest ? { email: emailOk ? email.trim() : undefined } : {}) ?? true;
   const { pay } = usePay();
   const [title, setTitle] = useState("");
+  const [category, setCategory] = useState("");
   const [child, setChild] = useState("");
   const [pages, setPages] = useState<number>(20);
   const [visibility, setVisibility] = useState<Visibility>("private");
@@ -149,7 +161,7 @@ function NewStoryForm({ onSent }: { onSent: () => void }) {
       : [...files, ...(hero ? [hero] : [])].some((f) => f.size > MAX_FILE_MB * MB) ? `كل ملف أقل من ${MAX_FILE_MB} ميجابايت.`
         : total > MAX_TOTAL_MB * MB ? `الملفات معًا أقل من ${MAX_TOTAL_MB} ميجابايت.` : null;
   const charge = storyCharge(pages, firstFree);
-  const ready = title.trim() && child.trim() && files.length > 0 && !fileProblem && consent && !status;
+  const ready = (!guest || emailOk) && child.trim() && files.length > 0 && !fileProblem && consent && !status && canSend;
 
   const upload = async (f: File) => {
     const res = await fetch(await uploadUrl(), { method: "POST", headers: { "Content-Type": contentType(f) }, body: f });
@@ -167,24 +179,43 @@ function NewStoryForm({ onSent }: { onSent: () => void }) {
       const uploaded = await Promise.all(files.map(upload));
       const heroFile = hero ? await upload(hero) : undefined;
       setStatus("جارٍ الإرسال…");
-      const { orderId } = await create({ title_ar: title, child_ar: child, visibility, pages, files: uploaded, hero: heroFile });
+      const { orderId, guestToken } = await create({
+        title_ar: title, child_ar: child, visibility, pages, files: uploaded, hero: heroFile,
+        category: category || undefined, email: guest ? email.trim() : undefined,
+      });
+      if (guestToken) addGuestToken(guestToken); // so this browser's shelf shows the new book
       if (orderId) {
         setStatus("جارٍ فتح صفحة الدفع…");
-        await pay(orderId); // on success the page moves to Moyasar; otherwise "أكمل الدفع" waits in the list
+        await pay(orderId, guestToken); // on success the page moves to Moyasar; otherwise "أكمل الدفع" waits in the list
       }
       onSent();
-    } catch {
-      setError("لم تُرسَل القصة، حاول مرة أخرى.");
+    } catch (e) {
+      setError(e instanceof ConvexError && e.data === "QUEUE_FULL" ? FULL_AR : "لم تُرسَل القصة، حاول مرة أخرى.");
       setStatus(null);
     }
   };
 
   return (
     <form className="lib-form" onSubmit={submit}>
+      {guest && <p className="muted">لا تحتاج إلى حساب: نرسل التفاصيل إلى بريدك، وحين تسجّل بالبريد نفسه تجد كتبك كلها في حسابك.</p>}
+      {!canSend && <p className="note" role="alert">{FULL_AR}</p>}
       {firstFree && <div className="free">🎁 قصتك الأولى مجانية حتى ٢٠ صفحة!</div>}
+      {guest && (
+        <label>
+          بريد وليّ الأمر
+          <input type="email" dir="ltr" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={120} autoComplete="email" placeholder="name@example.com" />
+        </label>
+      )}
       <label>
-        عنوان القصة
+        عنوان القصة (اختياري)
         <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} placeholder="مثلًا: القطة التي أحبّت المطر" />
+      </label>
+      <label>
+        نوع القصة
+        <select value={category} onChange={(e) => setCategory(e.target.value)}>
+          <option value="">اختر (اختياري)</option>
+          {CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label_ar}</option>)}
+        </select>
       </label>
       <label>
         اسم الكاتب الصغير وعمره

@@ -1,15 +1,19 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
-import { currentUser } from "./users";
+import { currentUser, isEmail, newGuestToken, normEmail } from "./users";
 import { MAX_COPIES, printCharge } from "./pricing";
 
 const text = (s: string, max: number) => s.trim().slice(0, max);
 
-/** Order printed copies of a published book, for the reader or as a gift. Paid through Moyasar. */
+/**
+ * Order printed copies of a published book, for the reader or as a gift. Paid through Moyasar.
+ * Guests order with an email (linked to their account if they sign up with it later).
+ */
 export const createPrint = mutation({
   args: {
     bookId: v.id("books"),
+    email: v.optional(v.string()), // guests only
     copies: v.number(),
     gift: v.boolean(),
     giftTo: v.optional(v.string()),
@@ -21,10 +25,11 @@ export const createPrint = mutation({
   },
   handler: async (ctx, a) => {
     const user = await currentUser(ctx);
-    if (!user) throw new Error("Not signed in");
+    const email = user?.email ? normEmail(user.email) : a.email ? normEmail(a.email) : undefined;
+    if (!user && !(email && isEmail(email))) throw new Error("An email is required");
     const book = await ctx.db.get(a.bookId);
     if (!book || book.status !== "published") throw new Error("This book cannot be printed yet");
-    if (book.visibility === "private" && book.ownerId !== user._id) throw new Error("Not your book");
+    if (book.visibility === "private" && (!user || book.ownerId !== user._id)) throw new Error("Not your book");
     const copies = Math.round(a.copies);
     if (copies < 1 || copies > MAX_COPIES) throw new Error(`1 to ${MAX_COPIES} copies`);
     const print = {
@@ -36,11 +41,13 @@ export const createPrint = mutation({
     if (!print.name || !print.city || !print.address || !/^\+?[0-9 ]{9,15}$/.test(print.phone)) {
       throw new Error("Name, phone, city and address are required");
     }
-    return ctx.db.insert("orders", {
-      userId: user._id, kind: "print", bookId: book._id, print, status: "pending",
+    const guestToken = user ? undefined : newGuestToken();
+    const orderId = await ctx.db.insert("orders", {
+      userId: user?._id, email, guestToken, kind: "print", bookId: book._id, print, status: "pending",
       amount: printCharge(copies, a.gift) * 100,
       description: `${copies} × نسخة مطبوعة من «${book.title_ar}»${a.gift ? " (هدية)" : ""}`,
     });
+    return { orderId, guestToken: guestToken ?? null };
   },
 });
 
@@ -57,13 +64,15 @@ export const mine = query({
 
 // ---- used by payments.ts ----
 
+/** The order, if it belongs to this signed-in user or this guest token. */
 export const forCheckout = internalQuery({
-  args: { orderId: v.id("orders"), tokenIdentifier: v.string() },
-  handler: async (ctx, { orderId, tokenIdentifier }) => {
+  args: { orderId: v.id("orders"), tokenIdentifier: v.optional(v.string()), guestToken: v.optional(v.string()) },
+  handler: async (ctx, { orderId, tokenIdentifier, guestToken }) => {
     const order = await ctx.db.get(orderId);
     if (!order) return null;
-    const user = await ctx.db.get(order.userId);
-    return user?.tokenIdentifier === tokenIdentifier ? order : null;
+    if (guestToken && order.guestToken === guestToken) return order;
+    const user = order.userId ? await ctx.db.get(order.userId) : null;
+    return tokenIdentifier && user?.tokenIdentifier === tokenIdentifier ? order : null;
   },
 });
 
@@ -108,8 +117,8 @@ export const forEmail = internalQuery({
   handler: async (ctx, { orderId }) => {
     const order = await ctx.db.get(orderId);
     if (!order) return null;
-    const user = await ctx.db.get(order.userId);
+    const user = order.userId ? await ctx.db.get(order.userId) : null;
     const book = order.bookId ? await ctx.db.get(order.bookId) : null;
-    return { order, email: user?.email, userName: user?.name, bookTitle: book?.title_ar };
+    return { order, email: user?.email ?? order.email, userName: user?.name, bookTitle: book?.title_ar };
   },
 });

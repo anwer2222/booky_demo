@@ -1,8 +1,11 @@
 "use node";
 // Emails go out through Gmail SMTP with an app password (Google account → Security → App passwords).
 // Convex environment variables:
-//   GMAIL_USER          the sending address, e.g. dreptecc@gmail.com
+//   GMAIL_USER          the Gmail account that signs in to send, e.g. dreptecc@gmail.com
 //   GMAIL_APP_PASSWORD  16-character app password for that account
+//   GMAIL_FROM          optional From address, e.g. a no-reply@ alias (must be a verified
+//                       "Send mail as" alias of GMAIL_USER, or Gmail replaces it); defaults to GMAIL_USER
+//   REPLY_TO            optional address that replies go to; defaults to GMAIL_USER
 //   ADMIN_EMAIL         where "new story" and "print order" emails go (defaults to GMAIL_USER)
 // Without GMAIL_APP_PASSWORD the email is logged and skipped, so the app still works.
 
@@ -12,6 +15,7 @@ import { internal } from "./_generated/api";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { LOGO_PNG_BASE64 } from "./logo";
+import { categoryLabel } from "./categories";
 
 type Attachment = { filename: string; content: Buffer; cid?: string };
 
@@ -51,7 +55,8 @@ async function send(to: string, subject: string, body: string, attachments: Atta
   }
   const transport = nodemailer.createTransport({ service: "gmail", auth: { user, pass } });
   await transport.sendMail({
-    from: `"رف الحكايات" <${user}>`,
+    from: `"رف الحكايات" <${process.env.GMAIL_FROM || user}>`,
+    replyTo: process.env.REPLY_TO || user,
     to,
     subject,
     html: page(body),
@@ -84,7 +89,7 @@ export const newStory = internalAction({
     const data = await ctx.runQuery(internal.submissions.forEmail, { submissionId });
     const to = admin();
     if (!data || !to) return;
-    const { s, email, amount } = data;
+    const { s, email, guest, amount } = data;
     const files = (await Promise.all((s.files ?? []).map((f) => file(ctx, f)))).filter((a): a is Attachment => !!a);
     const hero = s.hero ? await file(ctx, { ...s.hero, name: `البطل - ${s.hero.name}` }) : null;
     await send(to, `قصة جديدة: ${s.title_ar}`, [
@@ -95,7 +100,8 @@ export const newStory = internalAction({
         ["عدد الصفحات", s.pages ? String(s.pages) : undefined],
         ["الظهور", s.visibility === "public" ? "للجميع" : "خاص بالعائلة"],
         ["الدفع", amount ? `مدفوع ${sar(amount)}` : "القصة الأولى (مجانية)"],
-        ["البريد", email],
+        ["التصنيف", s.category ? (categoryLabel(s.category) ?? s.category) : undefined],
+        ["البريد", guest ? `${email ?? ""} (ضيف، بلا حساب)` : email],
       ]),
       p(`المرفقات: ${files.length} ملف${hero ? " وصورة البطل" : ""}.`),
     ].join(""), hero ? [...files, hero] : files);
@@ -135,11 +141,27 @@ export const receipt = internalAction({
     const data = await ctx.runQuery(internal.orders.forEmail, { orderId });
     if (!data?.email) return;
     const { order, userName } = data;
+    const guest = !order.userId;
     await send(data.email, "تم استلام الدفع — رف الحكايات", [
       p(userName ? `مرحبًا ${esc(userName)}،` : "مرحبًا،"),
       p("شكرًا لك! وصلنا الدفع:"),
       list([["الطلب", order.description], ["المبلغ", sar(order.amount)], ["رقم الطلب", order._id]]),
       p(order.kind === "print" ? "سنجهّز الكتاب المطبوع ونرسله إليك قريبًا." : "بدأ فريقنا العمل على قصتك، وتستطيع متابعة مراحلها من «كتبي» ← «قيد الإعداد»."),
+      guest ? p("أنشئ حسابًا بهذا البريد متى شئت، وستجد كل كتبك وطلباتك فيه.") : "",
+    ].join(""));
+  },
+});
+
+/** To the family, when a free story arrives (a paid one gets the receipt instead). */
+export const storyReceived = internalAction({
+  args: { submissionId: v.id("submissions") },
+  handler: async (ctx, { submissionId }) => {
+    const data = await ctx.runQuery(internal.submissions.forEmail, { submissionId });
+    if (!data?.email) return;
+    await send(data.email, "وصلتنا قصتك — رف الحكايات", [
+      p("مرحبًا،"),
+      p(`وصلتنا قصة «${esc(data.s.title_ar)}» بقلم ${esc(data.s.child_ar)}، وهي قصتكم الأولى المجانية. بدأ فريقنا العمل عليها، وستظهر على الرف بغلاف مؤقت حتى يجهز الكتاب.`),
+      data.guest ? p("أنشئ حسابًا بهذا البريد متى شئت، وستجد كل كتبك وطلباتك فيه.") : "",
     ].join(""));
   },
 });

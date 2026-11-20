@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObj
 import { useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Html, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
-import { isLocked, SHELF_SLOTS, type BookManifest, type ShelfBook } from "@/data/books";
+import { isLocked, lockLabel, SHELF_SLOTS, type BookManifest, type ShelfBook } from "@/data/books";
 import { MAX_LEAVES, type ReaderAction, type ReaderState } from "@/lib/reader";
 import { playBoing, playChime, playPageTurn } from "@/lib/sound";
 import { haloTexture, hopHeight, Sparkles, stepSquash, type Squash } from "@/lib/toyFx";
@@ -24,6 +24,9 @@ const X_AXIS = new THREE.Vector3(1, 0, 0);
 const SHELF_W = 2.0; // shelf length in the model (metres)
 const SLOT_GAP = 0.3; // distance between book centres on the shelf
 const FLIP_SECONDS = 0.28; // a shelf book tipping forward (or back up) when the shelf scrolls
+// Arrow signs at the ends of the book ledge scroll the shelf. RTL: the right one (Nav_Prev) goes
+// back to the previous books, the left one (Nav_Next) on to more books.
+const NAV = /^Nav_(Prev|Next)$/;
 
 export type PanState = { x: number; max: number; metresPerPx: number; init: boolean };
 
@@ -36,8 +39,12 @@ type Props = {
   openSlot: number; // the slot the open book came from
   muted: boolean;
   reducedMotion: boolean;
-  onLocked: (title: string) => void;
+  onLocked: (b: ShelfBook) => void;
   onPick: (slot: number) => void;
+  onToy: (name: string) => void; // a toy was tapped (toys on the toy shelf pick a category)
+  canPrev: boolean;
+  canNext: boolean;
+  onTurnShelf: (dir: 1 | -1) => void;
   pan: MutableRefObject<PanState>;
 };
 
@@ -133,6 +140,23 @@ function buildRig(scene: THREE.Object3D) {
   const sparkles = new Sparkles();
   scene.add(sparkles.group);
 
+  // The two arrow signs: each fades out when there is nothing more that way.
+  const navs = (["Nav_Prev", "Nav_Next"] as const).map((name) => {
+    const o = get(name);
+    const mats: THREE.Material[] = [];
+    o.traverse((c) => {
+      const mesh = c as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const clone = (m: THREE.Material) => { const n = m.clone(); n.transparent = true; mats.push(n); return n; };
+      mesh.material = Array.isArray(mesh.material) ? mesh.material.map(clone) : clone(mesh.material);
+    });
+    return {
+      o, mats, name, dir: name === "Nav_Prev" ? (-1 as const) : (1 as const),
+      side: name === "Nav_Prev" ? 1 : -1, // which way the arrow points in world x
+      base: { x: o.position.x, scale: o.scale.clone() }, hover: 0, nudge: 0, fade: 1,
+    };
+  });
+
   // The table book, standing upright in a slot with its front cover facing the room. Read from the
   // slot's current transform, so a book that is leaning out under the pointer leaves from there.
   const onShelf = new THREE.Matrix4()
@@ -154,7 +178,7 @@ function buildRig(scene: THREE.Object3D) {
 
   book.visible = false;
   return {
-    root: scene, book, parts, slots, slotBase, slotPos, toys, sparkles, spot, shelfPose,
+    root: scene, book, parts, slots, slotBase, slotPos, toys, navs, sparkles, spot, shelfPose,
     tableCover: tableCover.material as THREE.MeshStandardMaterial, boards,
     start: shelfPose(0), end: pose(tableMatrix),
   };
@@ -183,7 +207,7 @@ function lookPose(eye: THREE.Vector3, target: THREE.Vector3, up: THREE.Vector3) 
 /** Which named node (slot, toy or the book) a clicked mesh belongs to. */
 function owner(o: THREE.Object3D | null): string | null {
   for (; o; o = o.parent) {
-    if (/^(Book_Slot_\d|Book)$/.test(o.name) || TOY.test(o.name)) return o.name;
+    if (/^(Book_Slot_\d|Book)$/.test(o.name) || TOY.test(o.name) || NAV.test(o.name)) return o.name;
   }
   return null;
 }
@@ -212,7 +236,8 @@ function coverTexture(url: string) {
 }
 
 export default function RoomScene({
-  state, dispatch, manifest, basePath, shelf, openSlot, muted, reducedMotion, onLocked, onPick, pan,
+  state, dispatch, manifest, basePath, shelf, openSlot, muted, reducedMotion, onLocked, onPick, onToy,
+  canPrev, canNext, onTurnShelf, pan,
 }: Props) {
   const { scene: cached } = useGLTF(MODEL, DRACO);
   // Build on a fresh copy each time: the loader caches one scene, and React runs memos twice in development.
@@ -233,6 +258,8 @@ export default function RoomScene({
   const openSlotRef = useRef(openSlot);
   openSlotRef.current = openSlot;
   const hovered = useRef<string | null>(null);
+  const navOk = useRef({ Nav_Prev: canPrev, Nav_Next: canNext });
+  navOk.current = { Nav_Prev: canPrev, Nav_Next: canNext };
 
   // Mouse position for the shelf camera (desktop only): x for a little parallax, and "peek" when
   // the pointer sits near the bottom of the screen, to look down at the reading table.
@@ -430,6 +457,17 @@ export default function RoomScene({
     });
     rig.sparkles.update(dt);
 
+    // arrow signs: lean out under the pointer, jump the way they point when tapped, fade when there is nothing more
+    rig.navs.forEach((n) => {
+      const ok = navOk.current[n.name] && s.mode === "shelf";
+      n.hover = THREE.MathUtils.damp(n.hover, ok && hovered.current === n.name ? 1 : 0, 12, dt);
+      n.nudge = Math.max(0, n.nudge - dt / 0.35);
+      n.fade = THREE.MathUtils.damp(n.fade, ok ? 1 : 0.3, 8, dt);
+      n.o.position.x = n.base.x + n.side * 0.04 * Math.sin(n.nudge * Math.PI);
+      n.o.scale.copy(n.base.scale).multiplyScalar(1 + 0.12 * n.hover);
+      n.mats.forEach((m) => (m.opacity = n.fade));
+    });
+
     // camera
     const cam = camera as THREE.PerspectiveCamera;
     const aspect = size.width / size.height;
@@ -498,13 +536,22 @@ export default function RoomScene({
         rig.sparkles.burst(toy.center.clone().add(new THREE.Vector3(0, toy.size.y * 0.25, 0.04)));
       }
       if (!muted) { playBoing(); playChime(toy.kind); }
+      onToy(toy.o.name);
+      return;
+    }
+    const nav = rig.navs.find((n) => n.name === who);
+    if (nav) {
+      if (s.mode !== "shelf" || !navOk.current[nav.name]) return;
+      nav.nudge = 1;
+      if (!muted) playChime(nav.dir > 0 ? 3 : 1);
+      onTurnShelf(nav.dir);
       return;
     }
     if (s.mode === "shelf" && who.startsWith("Book_Slot_")) {
       const slot = Number(who.slice(-1)) - 1;
       const b = shelfRef.current[slot];
       if (!b) return;
-      if (isLocked(b)) onLocked(b.title_ar);
+      if (isLocked(b)) onLocked(b);
       else onPick(slot);
       return;
     }
@@ -521,7 +568,8 @@ export default function RoomScene({
     const hit = firstShown(e);
     const who = hit ? owner(hit.object) : null;
     const s = stateRef.current;
-    const live = who && (TOY.test(who) || (s.mode === "shelf" && who.startsWith("Book_Slot_")) || (s.mode === "table" && who === "Book"));
+    const live = who && (TOY.test(who) || (s.mode === "shelf" && who.startsWith("Book_Slot_")) || (s.mode === "table" && who === "Book")
+      || (s.mode === "shelf" && NAV.test(who) && navOk.current[who as "Nav_Prev" | "Nav_Next"]));
     hovered.current = live ? who : null;
     setHoverSlot(live && who.startsWith("Book_Slot_") ? who : null);
     document.body.style.cursor = live ? "pointer" : "auto";
@@ -541,7 +589,7 @@ export default function RoomScene({
             <Html key={b._id} position={[rig.slotPos[i].x, rig.slotPos[i].y + 0.27, rig.slotPos[i].z + 0.04]} center zIndexRange={[10, 0]} wrapperClass="html-anchor" style={{ pointerEvents: "none" }}>
               <div className={isLocked(b) ? "shelf-label locked" : "shelf-label"} dir="rtl">
                 <span className="shelf-title">{b.title_ar}</span>
-                <span className="shelf-tag">{isLocked(b) ? "قريبًا" : "اضغط لتقرأ"}</span>
+                <span className="shelf-tag">{isLocked(b) ? lockLabel(b) : "اضغط لتقرأ"}</span>
               </div>
             </Html>
           ) : null,

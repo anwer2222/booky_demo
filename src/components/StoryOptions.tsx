@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { SignInButton, useAuth } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
 import { useMutation } from "convex/react";
 import Sheet from "./Sheet";
 import { api } from "../../convex/_generated/api";
@@ -35,29 +35,25 @@ function PrintForm({ book }: { book: ShelfBook }) {
   const createPrint = useMutation(api.orders.createPrint);
   const { pay, paying, error: payError } = usePay();
   const [f, setF] = useState({ copies: 1, gift: false, giftTo: "", giftMessage: "", name: "", phone: "", city: "", address: "" });
+  const [email, setEmail] = useState(""); // guests only
+  const guest = !isSignedIn;
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim());
   const [error, setError] = useState<string | null>(null);
   const set = <K extends keyof typeof f>(k: K, val: (typeof f)[K]) => setF((x) => ({ ...x, [k]: val }));
   const total = printCharge(f.copies, f.gift);
   const phoneOk = /^\+?[0-9 ]{9,15}$/.test(f.phone.trim());
-  const ready = f.name.trim() && phoneOk && f.city.trim() && f.address.trim() && (!f.gift || f.giftTo.trim()) && !paying;
-
-  if (!isSignedIn) {
-    return (
-      <div className="opt-card">
-        <h3>نسخة مطبوعة بغلاف مقوّى</h3>
-        <p>سجّل الدخول لتطلب نسخة مطبوعة لك أو هدية لمن تحب.</p>
-        <SignInButton mode="modal"><button className="btn primary">تسجيل الدخول</button></SignInButton>
-      </div>
-    );
-  }
+  const ready = (!guest || emailOk) && f.name.trim() && phoneOk && f.city.trim() && f.address.trim() && (!f.gift || f.giftTo.trim()) && !paying;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ready) return;
     setError(null);
     try {
-      const orderId = await createPrint({ bookId: book._id, ...f, giftTo: f.giftTo || undefined, giftMessage: f.giftMessage || undefined });
-      await pay(orderId);
+      const { orderId, guestToken } = await createPrint({
+        bookId: book._id, ...f, giftTo: f.giftTo || undefined, giftMessage: f.giftMessage || undefined,
+        email: guest ? email.trim() : undefined,
+      });
+      await pay(orderId, guestToken);
     } catch {
       setError("لم يُحفظ الطلب، تأكد من البيانات وحاول مرة أخرى.");
     }
@@ -65,6 +61,12 @@ function PrintForm({ book }: { book: ShelfBook }) {
 
   return (
     <form className="lib-form" onSubmit={submit}>
+      {guest && (
+        <label>
+          بريدك (للإيصال ومتابعة الطلب، دون الحاجة إلى حساب)
+          <input type="email" dir="ltr" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={120} autoComplete="email" placeholder="name@example.com" />
+        </label>
+      )}
       <label>
         عدد النسخ
         <select value={f.copies} onChange={(e) => set("copies", Number(e.target.value))}>

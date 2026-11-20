@@ -8,7 +8,9 @@ import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import RoomScene, { type PanState } from "./RoomScene";
 import Overlay from "./Overlay";
+import { categoryOfToy, CATEGORIES } from "../../convex/categories";
 import { isLocked, SHELF_SLOTS, type BookManifest, type ShelfBook } from "@/data/books";
+import { useGuestTokens } from "@/lib/guest";
 import { initialReader, leavesFor, readerReducer } from "@/lib/reader";
 
 const SWIPE_PX = 60; // finger travel that counts as a swipe
@@ -53,23 +55,29 @@ export default function StoryShelf() {
     if (isAuthenticated) storeUser().catch(() => { /* tried again on the next sign-in */ });
   }, [isAuthenticated, storeUser]);
 
-  // Back from Moyasar's payment page (/?order=<id>): confirm the payment with the server.
+  // Back from Moyasar's payment page (/?order=<id>, plus &g=<token> for a guest): confirm the payment.
   const verify = useAction(api.payments.verify);
   useEffect(() => {
-    const orderId = new URLSearchParams(location.search).get("order");
-    if (!orderId || !isAuthenticated) return;
+    const q = new URLSearchParams(location.search);
+    const orderId = q.get("order");
+    const guestToken = q.get("g") ?? undefined;
+    if (!orderId || (!guestToken && !isAuthenticated)) return;
     history.replaceState(null, "", location.pathname);
-    verify({ orderId: orderId as Id<"orders"> })
+    verify({ orderId: orderId as Id<"orders">, guestToken })
       .then((status) => setToast(
         status === "paid" ? "تم الدفع، شكرًا لك! أرسلنا التفاصيل إلى بريدك."
-          : status === "failed" ? "لم يكتمل الدفع. يمكنك المحاولة مرة أخرى من «كتبي»." : "لم يكتمل الدفع بعد.",
+          : status === "failed" ? `لم يكتمل الدفع. يمكنك المحاولة مرة أخرى${guestToken ? "." : " من «كتبي»."}` : "لم يكتمل الدفع بعد.",
       ))
       .catch(() => setToast("تعذّر التحقق من الدفع، سنراجعه ونعلمك بالبريد."));
   }, [isAuthenticated, verify]);
 
-  // Books: public ones plus the user's own, SHELF_SLOTS at a time; arrows scroll the shelf.
-  const books = useQuery(api.books.list);
-  const all = books ?? [];
+  // Books: public ones plus the user's own (or this browser's guest stories), SHELF_SLOTS at a time;
+  // the arrow signs scroll the shelf. Tapping a toy shows only its category; tapping it again shows all.
+  const guestTokens = useGuestTokens();
+  const books = useQuery(api.books.list, { guestTokens });
+  const [category, setCategory] = useState<string | null>(null);
+  const everything = books ?? [];
+  const all = category ? everything.filter((b) => b.category === category) : everything;
   const [offset, setOffset] = useState(0);
   const pages = Math.max(1, Math.ceil(all.length / SHELF_SLOTS));
   const shelfPage = Math.min(offset / SHELF_SLOTS, pages - 1);
@@ -105,13 +113,15 @@ export default function StoryShelf() {
   }, [shelf, openBook]);
   /** From the "my books" list: scroll the shelf to the book first, then take it down. */
   const readFromList = useCallback((book: ShelfBook) => {
-    const i = all.findIndex((b) => b._id === book._id);
+    const filtered = all.some((b) => b._id === book._id);
+    if (!filtered) setCategory(null); // the book is outside the toy's category: show the whole shelf
+    const i = (filtered ? all : everything).findIndex((b) => b._id === book._id);
     if (i < 0) return;
     const page = Math.floor(i / SHELF_SLOTS);
-    if (page === shelfPage) return void openBook(book, i % SHELF_SLOTS);
+    if (filtered && page === shelfPage) return void openBook(book, i % SHELF_SLOTS);
     setOffset(page * SHELF_SLOTS);
     setTimeout(() => void openBook(book, i % SHELF_SLOTS), 900); // after the covers have flipped
-  }, [all, shelfPage, openBook]);
+  }, [all, everything, shelfPage, openBook]);
 
   useEffect(() => {
     setWebgl(hasWebGL());
@@ -126,9 +136,18 @@ export default function StoryShelf() {
     });
   };
 
-  const onLocked = useCallback((title: string) => {
-    setToast(`«${title}» قريبًا!`);
+  const onLocked = useCallback((b: ShelfBook) => {
+    setToast(b.status === "processing" ? `«${b.title_ar}» قيد الإعداد، سيصلك بريد حين يجهز!` : `«${b.title_ar}» قريبًا!`);
   }, []);
+
+  const onToy = useCallback((toy: string) => {
+    const c = categoryOfToy(toy);
+    if (!c || stateRef.current.mode !== "shelf") return;
+    if (category === c.id) { setCategory(null); setOffset(0); return; }
+    if (!everything.some((b) => b.category === c.id)) return setToast(`لا توجد قصص عن «${c.label_ar}» بعد. اكتبوا أول واحدة!`);
+    setCategory(c.id);
+    setOffset(0);
+  }, [category, everything]);
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), toast.length > 30 ? 4500 : 2200);
@@ -222,7 +241,7 @@ export default function StoryShelf() {
       <main className="fallback" dir="rtl">
         <h1>رَفُّ الحِكايات</h1>
         <p>{contextLost ? "توقّف العرض ثلاثي الأبعاد. أعد تحميل الصفحة للمحاولة مرة أخرى." : "هذا الجهاز لا يدعم العرض ثلاثي الأبعاد، لكن يمكنك قراءة الكتب."}</p>
-        {all.filter((b) => !isLocked(b)).map((b) => (
+        {everything.filter((b) => !isLocked(b)).map((b) => (
           <section key={b._id} className="fallback">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={b.cover} alt={`غلاف كتاب ${b.title_ar}`} />
@@ -291,6 +310,10 @@ export default function StoryShelf() {
                 reducedMotion={reducedMotion}
                 onLocked={onLocked}
                 onPick={onPick}
+                onToy={onToy}
+                canPrev={shelfPage > 0}
+                canNext={shelfPage < pages - 1}
+                onTurnShelf={turnShelf}
                 pan={pan}
               />
             </Suspense>
@@ -307,12 +330,11 @@ export default function StoryShelf() {
         totalPages={manifest?.pages.length ?? 0}
         toast={toast}
         onLocked={onLocked}
-        books={all}
+        books={everything}
         openBook={open?.book ?? null}
         onReadBook={readFromList}
-        shelfPage={shelfPage}
-        shelfPages={pages}
-        onTurnShelf={turnShelf}
+        category={CATEGORIES.find((c) => c.id === category)?.label_ar ?? null}
+        onClearCategory={() => { setCategory(null); setOffset(0); }}
         immersive={immersive}
         onImmersive={setFullscreen}
       />

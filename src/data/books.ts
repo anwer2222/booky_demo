@@ -7,6 +7,8 @@ export type ShelfBook = Doc<"books">;
 export type Submission = Doc<"submissions">;
 
 export const isLocked = (b: ShelfBook) => b.status !== "published" || !b.basePath;
+/** The tag on a book that cannot be read yet. */
+export const lockLabel = (b: ShelfBook) => (b.status === "processing" ? "قيد الإعداد" : "قريبًا");
 
 export const SHELF_SLOTS = 4; // books visible on the shelf at a time
 

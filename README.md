@@ -22,6 +22,8 @@ npx convex run books:seed   # once: puts the 4 demo books in the database
 Convex environment variables (`npx convex env set NAME value`, or the Convex dashboard):
 - `CLERK_JWT_ISSUER_DOMAIN`: the Clerk Frontend API URL, e.g. `https://optimum-mosquito-9363.clerk.accounts.dev`.
 - `GMAIL_USER`: the sending Gmail address (dreptecc@gmail.com).
+- `GMAIL_FROM` (optional): the From address, e.g. a `no-reply@` alias. It must be a verified "Send mail as" alias of `GMAIL_USER` in Gmail settings. Defaults to `GMAIL_USER`.
+- `REPLY_TO` (optional): where replies go. Defaults to `GMAIL_USER`.
 - `GMAIL_APP_PASSWORD`: a Google *app password* for that account (Google Account → Security → 2-Step Verification → App passwords). Until it is set, emails are written to the Convex log instead of sent.
 - `ADMIN_EMAIL`: who gets "new story" emails (defaults to `GMAIL_USER`).
 - `MOYASAR_SECRET_KEY`: Moyasar secret key (`sk_test_...` while testing). Without it, the pay buttons say payments are not active yet.
@@ -33,7 +35,10 @@ Clerk needs a JWT template named `convex` (claims `aud: "convex"`, `name`, `emai
 
 - `books`: the shelf. Everyone sees `public` books; signed-in users also see their own `private` ones. `npx convex run books:seed` resets the 4 demo books.
 - `users`: created on first sign-in (`users.store`), which also sends the welcome email.
-- `submissions`: stories sent from «📚 كتبي» → «أضف قصة جديدة»: story files (txt, docx or photos), an optional hero picture (stored in Convex file storage), page count and price. The admin email carries the files as attachments. Move a story through its stages (received → writing → illustrating → ready) by editing `stage` in the Convex dashboard.
+- **Guests:** stories and print orders work without an account, with an email. Each guest story/order gets a secret `guestToken` (kept in the browser's localStorage so the shelf shows their books, and added to the Moyasar return link as `&g=`). Signing up with the same email links everything to the account (`users.store`). The free first story is counted per account *and* per email.
+- **Categories:** 7, one per toy on the toy shelf (`convex/categories.ts`). Tapping a toy shows only its books. Set a book's category with `npx convex run books:setCategory '{"slug":"laila","category":"travel"}'`.
+- **New stories on the shelf:** sending a story adds a private `processing` book (template cover `public/covers/processing.webp`, title «قصتي الجديدة» if none, ribbon «قيد الإعداد»). To publish it, set its `status`, `basePath`, `pdf`, `cover` (and `visibility` if the family chose public) in the dashboard.
+- `submissions`: stories sent from the book-and-plus button or «📚 كتبي» → «أضف قصة جديدة»: story files (txt, docx or photos), an optional hero picture (stored in Convex file storage), page count and price. The admin email carries the files as attachments. Move a story through its stages (received → writing → illustrating → ready) by editing `stage` in the Convex dashboard.
 - `orders`: payments. Story orders (when the story is not free) and printed copies (from «خيارات القصة» in the reader, optionally as a gift).
 
 ### Prices and payments

@@ -9,6 +9,7 @@
  */
 
 import type * as books from "../books.js";
+import type * as categories from "../categories.js";
 import type * as emails from "../emails.js";
 import type * as http from "../http.js";
 import type * as logo from "../logo.js";
@@ -26,6 +27,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   books: typeof books;
+  categories: typeof categories;
   emails: typeof emails;
   http: typeof http;
   logo: typeof logo;

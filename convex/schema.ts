@@ -9,15 +9,19 @@ export default defineSchema({
     name: v.optional(v.string()),
   }).index("by_token", ["tokenIdentifier"]),
 
-  // Books on the shelf. "public" books are shown to everyone; "private" ones only to their owner.
-  // (Family sharing comes later.) A book is readable when it is published and has a `basePath`
+  // Books on the shelf. "public" books are shown to everyone; "private" ones only to their owner
+  // (a signed-in user, or a guest holding the book's `guestToken`). (Family sharing comes later.)
+  // A story sent in gets a "processing" book at once, with the template cover and a ribbon. A book is readable when it is published and has a `basePath`
   // holding manifest.json, the page images and the PDF.
   books: defineTable({
     slug: v.string(),
     title_ar: v.string(),
-    status: v.union(v.literal("published"), v.literal("coming_soon")),
+    status: v.union(v.literal("published"), v.literal("coming_soon"), v.literal("processing")),
     visibility: v.union(v.literal("public"), v.literal("private")),
     ownerId: v.optional(v.id("users")),
+    guestToken: v.optional(v.string()),
+    submissionId: v.optional(v.id("submissions")),
+    category: v.optional(v.string()), // convex/categories.ts
     basePath: v.optional(v.string()),
     pdf: v.optional(v.string()), // file name inside basePath
     cover: v.string(),
@@ -25,12 +29,18 @@ export default defineSchema({
   })
     .index("by_slug", ["slug"])
     .index("by_visibility", ["visibility", "order"])
-    .index("by_owner", ["ownerId", "order"]),
+    .index("by_owner", ["ownerId", "order"])
+    .index("by_guest", ["guestToken"]),
 
   // Stories a family has sent in that an admin is turning into a book. The story itself is in
   // the uploaded files (text, Word or photos of handwritten pages), plus an optional hero picture.
+  // Guests (no account) send with an email; signing up later with that email claims the story.
   submissions: defineTable({
-    userId: v.id("users"),
+    userId: v.optional(v.id("users")),
+    email: v.optional(v.string()), // lower case
+    guestToken: v.optional(v.string()), // the guest's secret for this story and its order
+    category: v.optional(v.string()),
+    bookId: v.optional(v.id("books")),
     title_ar: v.string(),
     child_ar: v.string(),
     visibility: v.union(v.literal("public"), v.literal("private")),
@@ -40,12 +50,17 @@ export default defineSchema({
     hero: v.optional(v.object({ id: v.id("_storage"), name: v.string() })),
     payment: v.optional(v.union(v.literal("free"), v.literal("pending"), v.literal("paid"))),
     orderId: v.optional(v.id("orders")),
-  }).index("by_user", ["userId"]),
+  })
+    .index("by_user", ["userId"])
+    .index("by_email", ["email"])
+    .index("by_stage", ["stage"]),
 
   // Anything paid through Moyasar: making a story into a book, or printed copies of a book.
   // `amount` is in halalas and is always worked out on the server (convex/pricing.ts).
   orders: defineTable({
-    userId: v.id("users"),
+    userId: v.optional(v.id("users")), // empty for a guest order until they sign up
+    email: v.optional(v.string()),
+    guestToken: v.optional(v.string()),
     kind: v.union(v.literal("story"), v.literal("print")),
     amount: v.number(),
     description: v.string(),
@@ -66,5 +81,6 @@ export default defineSchema({
     })),
   })
     .index("by_user", ["userId"])
+    .index("by_email", ["email"])
     .index("by_invoice", ["invoiceId"]),
 });

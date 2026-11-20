@@ -26,10 +26,11 @@ async function moyasar(path: string, init?: RequestInit): Promise<Invoice> {
   return res.json();
 }
 
-async function ownOrder(ctx: ActionCtx, orderId: Id<"orders">) {
+/** The caller's order: signed in, or a guest holding the order's token. */
+async function ownOrder(ctx: ActionCtx, orderId: Id<"orders">, guestToken?: string) {
   const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new Error("Not signed in");
-  const order = await ctx.runQuery(internal.orders.forCheckout, { orderId, tokenIdentifier: identity.tokenIdentifier });
+  if (!identity && !guestToken) throw new Error("Not signed in");
+  const order = await ctx.runQuery(internal.orders.forCheckout, { orderId, tokenIdentifier: identity?.tokenIdentifier, guestToken });
   if (!order) throw new Error("Order not found");
   return order;
 }
@@ -51,13 +52,14 @@ export async function settle(ctx: ActionCtx, order: Doc<"orders">) {
 
 /** Returns the Moyasar page to pay this order on. */
 export const checkout = action({
-  args: { orderId: v.id("orders") },
-  handler: async (ctx, { orderId }): Promise<string> => {
-    const order = await ownOrder(ctx, orderId);
+  args: { orderId: v.id("orders"), guestToken: v.optional(v.string()) },
+  handler: async (ctx, { orderId, guestToken }): Promise<string> => {
+    const order = await ownOrder(ctx, orderId, guestToken);
     if (order.status === "paid") throw new Error("Already paid");
     if (order.invoiceId && order.invoiceUrl && (await settle(ctx, order)) === "pending") return order.invoiceUrl;
-    const site = process.env.SITE_URL ?? "http://localhost:3000";
-    const back = `${site}/?order=${orderId}`;
+    const site = process.env.SITE_URL ?? "http://localhost:3001";
+    // a guest has no session to come back to, so their token rides along in the return link
+    const back = `${site}/?order=${orderId}${order.guestToken ? `&g=${order.guestToken}` : ""}`;
     const inv = await moyasar("/invoices", {
       method: "POST",
       body: JSON.stringify({
@@ -80,6 +82,6 @@ export const checkout = action({
 
 /** Called when Moyasar sends the customer back to the site. */
 export const verify = action({
-  args: { orderId: v.id("orders") },
-  handler: async (ctx, { orderId }): Promise<string> => settle(ctx, await ownOrder(ctx, orderId)),
+  args: { orderId: v.id("orders"), guestToken: v.optional(v.string()) },
+  handler: async (ctx, { orderId, guestToken }): Promise<string> => settle(ctx, await ownOrder(ctx, orderId, guestToken)),
 });
